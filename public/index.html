@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ask your data — nl2sql</title>
+<style>
+  :root {
+    --ink: #15181d;
+    --ink-raised: #1f232a;
+    --ink-raised-hover: #262b33;
+    --ink-border: #2c313a;
+    --text-ink: #ece9e1;
+    --text-ink-muted: #8d9298;
+
+    --paper: #eef0ea;
+    --paper-raised: #fffefb;
+    --line: #d7dbd0;
+    --text-main: #1b1e18;
+    --text-muted: #5d6258;
+
+    --accent: #b8863a;
+    --accent-strong: #93691f;
+    --accent-wash: #f4e9d6;
+    --safe: #3f6e64;
+    --safe-wash: #e5efec;
+    --danger: #9c3b2e;
+    --danger-wash: #fbecea;
+
+    --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --font-body: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--font-body);
+    background: var(--paper);
+    color: var(--text-main);
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ---------- Sidebar: the control pane ---------- */
+  .sidebar {
+    width: 300px;
+    flex: 0 0 300px;
+    background: var(--ink);
+    color: var(--text-ink);
+    padding: 1.75rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+  }
+  .brand-mark {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .brand-mark .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
+  .brand h1 {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 400;
+    margin: 0;
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+  }
+  .brand p {
+    margin: 0.35rem 0 0;
+    font-size: 0.82rem;
+    color: var(--text-ink-muted);
+    line-height: 1.5;
+  }
+
+  .panel-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-ink-muted);
+    margin: 0 0 0.6rem;
+  }
+
+  .model-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .model-card {
+    display: block;
+    text-align: left;
+    width: 100%;
+    background: var(--ink-raised);
+    border: 1px solid var(--ink-border);
+    border-radius: 8px;
+    padding: 0.7rem 0.8rem;
+    cursor: pointer;
+    color: inherit;
+    font-family: inherit;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .model-card:hover { background: var(--ink-raised-hover); }
+  .model-card.selected {
+    border-color: var(--accent);
+    background: linear-gradient(0deg, var(--ink-raised), var(--ink-raised)), var(--ink);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .model-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .model-name { font-size: 0.9rem; font-weight: 600; }
+  .badge {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.15rem 0.45rem;
+    border-radius: 99px;
+    flex: none;
+  }
+  .badge.local { background: rgba(63, 110, 100, 0.25); color: #8fc9ba; }
+  .badge.remote { background: rgba(184, 134, 58, 0.22); color: #e0b273; }
+  .model-desc { margin: 0.3rem 0 0; font-size: 0.78rem; color: var(--text-ink-muted); line-height: 1.45; }
+
+  .source-status {
+    margin-top: auto;
+    border-top: 1px solid var(--ink-border);
+    padding-top: 1.1rem;
+    font-size: 0.78rem;
+    color: var(--text-ink-muted);
+    line-height: 1.7;
+  }
+  .source-status strong { color: var(--text-ink); font-weight: 600; }
+  .source-status .row { display: flex; justify-content: space-between; gap: 0.5rem; }
+
+  /* ---------- Main canvas ---------- */
+  .main {
+    flex: 1;
+    min-width: 0;
+    padding: 2.25rem 3rem 3rem;
+    max-width: 920px;
+  }
+  .analytics { margin-bottom: 2rem; }
+  .analytics .panel-label { color: var(--text-muted); }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.7rem;
+  }
+  .stat-tile {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+  }
+  .stat-tile .stat-value {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    line-height: 1.1;
+    color: var(--text-main);
+  }
+  .stat-tile .stat-label {
+    margin: 0.25rem 0 0;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .db-info { margin: 0.85rem 0 0; font-size: 0.82rem; color: var(--text-muted); }
+  .db-info strong { color: var(--text-main); }
+  .sample-label { margin-top: 1.1rem; }
+
+  .composer h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.6rem;
+    margin: 0 0 0.3rem;
+    text-wrap: balance;
+  }
+  .composer .sub { margin: 0 0 1.1rem; color: var(--text-muted); font-size: 0.92rem; }
+
+  form { display: flex; gap: 0.6rem; }
+  input[type="text"] {
+    flex: 1;
+    padding: 0.75rem 0.9rem;
+    font-size: 0.98rem;
+    font-family: inherit;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper-raised);
+    color: var(--text-main);
+  }
+  input[type="text"]:focus, input[type="password"]:focus, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button {
+    padding: 0.75rem 1.3rem;
+    font-size: 0.95rem;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #201404;
+  }
+  button:hover { background: var(--accent-strong); }
+  button:disabled { opacity: 0.55; cursor: default; }
+  button.ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--line);
+  }
+  button.ghost:hover { background: var(--paper-raised); color: var(--text-main); }
+
+  #output { margin-top: 1.75rem; display: flex; flex-direction: column; gap: 1.1rem; }
+
+  .card {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.1rem 1.2rem;
+  }
+  .card .explanation { margin: 0 0 0.7rem; color: var(--text-muted); font-size: 0.92rem; line-height: 1.5; }
+  .sql-block {
+    background: #24262130;
+    background: color-mix(in srgb, var(--text-main) 5%, transparent);
+    border: 1px solid var(--line);
+    padding: 0.65rem 0.8rem;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+  .result-meta { margin: 0.7rem 0 0.5rem; color: var(--text-muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  th, td { padding: 0.5rem 0.7rem; text-align: left; white-space: nowrap; }
+  th {
+    background: var(--paper);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--line);
+  }
+  tr:nth-child(even) td { background: color-mix(in srgb, var(--paper) 55%, var(--paper-raised)); }
+  td { border-bottom: 1px solid var(--line); }
+
+  .status-line { color: var(--text-muted); font-size: 0.88rem; }
+
+  /* ---------- Error blocks ---------- */
+  .error-block { border: 1px solid var(--danger); background: var(--danger-wash); border-radius: 10px; padding: 1rem 1.15rem; }
+  .error-block .headline { margin: 0 0 0.5rem; color: var(--danger); font-weight: 600; font-size: 0.94rem; }
+  .technical-error {
+    background: rgba(28, 20, 18, 0.05);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: #6b2a20;
+  }
+
+  /* ---------- Admin authorization panel ---------- */
+  .admin-panel {
+    border: 1px solid var(--danger);
+    background: var(--danger-wash);
+    border-radius: 10px;
+    padding: 1.1rem 1.2rem;
+  }
+  .admin-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.15rem; }
+  .admin-head .lock { flex: none; color: var(--danger); }
+  .admin-head h3 { margin: 0; font-size: 1rem; color: var(--danger); font-weight: 700; }
+  .admin-panel .op-line { margin: 0.15rem 0 0.8rem; font-size: 0.86rem; color: #6b2a20; }
+  .admin-panel .op-line code { font-family: var(--font-mono); font-weight: 600; }
+  .admin-panel .explanation { margin: 0 0 0.7rem; color: var(--text-muted); font-size: 0.9rem; }
+  .admin-row { display: flex; gap: 0.55rem; margin-top: 0.85rem; }
+  input[type="password"] {
+    flex: 1;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.92rem;
+    font-family: inherit;
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line));
+    border-radius: 8px;
+    background: var(--paper-raised);
+  }
+  button.danger { background: var(--danger); color: #fff6f4; }
+  button.danger:hover { background: #7d2f24; }
+  .confirm-result { margin-top: 0.7rem; }
+  .confirm-done { color: var(--safe); font-size: 0.88rem; font-weight: 600; }
+
+  @media (max-width: 760px) {
+    body { flex-direction: column; }
+    .sidebar { width: auto; flex: none; }
+    .main { padding: 1.5rem; max-width: none; }
+  }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"><span class="dot"></span><h1>Ask your data</h1></div>
+      <p>English questions, translated to SQL, run read-only against the real HR database.</p>
+    </div>
+
+    <div>
+      <p class="panel-label">Select</p>
+      <div class="model-list" id="model-list">
+        <p class="status-line">Loading models&hellip;</p>
+      </div>
+    </div>
+
+    <div class="source-status">
+      <div class="row"><span>Database</span><strong>nextgendb (Postgres)</strong></div>
+      <div class="row"><span>Access</span><strong>Read-only by default</strong></div>
+      <div class="row"><span>Writes</span><strong>Require admin password</strong></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="analytics">
+      <p class="panel-label">Database overview</p>
+      <div class="stat-grid" id="stat-grid">
+        <p class="status-line">Loading overview&hellip;</p>
+      </div>
+      <p class="db-info" id="db-info"></p>
+      <p class="panel-label sample-label">Top 5 records &mdash; pers.employee_master</p>
+      <div id="sample-table">
+        <p class="status-line">Loading sample rows&hellip;</p>
+      </div>
+    </div>
+    <div class="composer">
+      <h2>What do you want to know?</h2>
+      <p class="sub">Try &ldquo;List the 10 most recently added employees&rdquo; or &ldquo;How many employees joined this year?&rdquo;</p>
+      <form id="ask-form">
+        <input type="text" id="prompt" placeholder="Ask a question about the HR data&hellip;" autofocus autocomplete="off" />
+        <button type="submit" id="submit-btn">Ask</button>
+      </form>
+    </div>
+    <div id="output"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById("ask-form");
+    const promptInput = document.getElementById("prompt");
+    const modelList = document.getElementById("model-list");
+    const submitBtn = document.getElementById("submit-btn");
+    const output = document.getElementById("output");
+
+    let selectedModelId = null;
+    const statGrid = document.getElementById("stat-grid");
+    const dbInfo = document.getElementById("db-info");
+    const sampleTable = document.getElementById("sample-table");
+
+    async function loadAnalytics() {
+      try {
+        const res = await fetch("/analytics");
+        if (!res.ok) throw new Error("request failed");
+        const s = await res.json();
+        const tiles = [
+          { value: s.totalEmployees, label: "Total employees" },
+          { value: s.activeEmployees, label: "Active employees" },
+          { value: s.maleCount, label: "Male" },
+          { value: s.femaleCount, label: "Female" },
+          { value: s.distinctDesignations, label: "Designations" },
+          { value: s.tableCount, label: "Tables" },
+        ];
+        statGrid.innerHTML = tiles
+          .map(
+            (t) => `
+          <div class="stat-tile">
+            <div class="stat-value">${escapeHtml(t.value)}</div>
+            <p class="stat-label">${escapeHtml(t.label)}</p>
+          </div>`
+          )
+          .join("");
+
+        dbInfo.innerHTML = `<strong>${escapeHtml(s.databaseName)}</strong> (Postgres) &middot; schemas: ${escapeHtml(s.schemas.join(", "))}`;
+
+        const sampleRows = s.sample.rows.map((r) => ({
+          ...r,
+          is_active: r.is_active ? "Yes" : "No",
+        }));
+        sampleTable.innerHTML = renderTable(s.sample.columns, sampleRows);
+      } catch (err) {
+        statGrid.innerHTML = `<p class="status-line">Overview unavailable.</p>`;
+        sampleTable.innerHTML = `<p class="status-line">Sample rows unavailable.</p>`;
+      }
+    }
+    loadAnalytics();
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    function renderModelList(models) {
+      modelList.innerHTML = models
+        .map(
+          (m) => `
+        <button type="button" class="model-card${m.id === selectedModelId ? " selected" : ""}" data-model-id="${escapeHtml(m.id)}">
+          <div class="model-card-top">
+            <span class="model-name">${escapeHtml(m.shortLabel)}</span>
+            <span class="badge ${m.badge}">${m.badge === "local" ? "Offline" : "H200"}</span>
+          </div>
+          <p class="model-desc">${escapeHtml(m.description)}</p>
+        </button>`
+        )
+        .join("");
+
+      modelList.querySelectorAll(".model-card").forEach((el) => {
+        el.addEventListener("click", () => {
+          selectedModelId = el.dataset.modelId;
+          modelList.querySelectorAll(".model-card").forEach((c) => c.classList.toggle("selected", c === el));
+        });
+      });
+    }
+
+    async function loadModels() {
+      try {
+        const res = await fetch("/models");
+        const data = await res.json();
+        selectedModelId = data.models[0]?.id ?? null;
+        renderModelList(data.models);
+      } catch (err) {
+        modelList.innerHTML = `<p class="status-line">Models unavailable.</p>`;
+      }
+    }
+    loadModels();
+
+    function renderTable(columns, rows) {
+      if (rows.length === 0) {
+        return "<p class=\"status-line\">No rows returned.</p>";
+      }
+      const head = "<tr>" + columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
+      const body = rows
+        .map((row) => "<tr>" + columns.map((c) => `<td>${escapeHtml(row[c] ?? "")}</td>`).join("") + "</tr>")
+        .join("");
+      return `<div class="table-scroll"><table>${head}${body}</table></div>`;
+    }
+
+    function renderErrorBlock(data) {
+      const div = document.createElement("div");
+      div.className = "error-block";
+      div.innerHTML = `
+        <p class="headline">${escapeHtml(data.error || "Request failed.")}</p>
+        ${data.technicalError ? `<div class="technical-error">${escapeHtml(data.technicalError)}</div>` : ""}
+      `;
+      return div;
+    }
+
+    function renderResult(result) {
+      const div = document.createElement("div");
+      div.className = "card";
+      div.innerHTML = `
+        <p class="explanation">${escapeHtml(result.explanation)}</p>
+        <div class="sql-block">${escapeHtml(result.sql)}</div>
+        <p class="result-meta">${result.rowCount} row(s)</p>
+        ${renderTable(result.columns, result.rows)}
+      `;
+      return div;
+    }
+
+    const lockIcon = `<svg class="lock" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+
+    // A generated INSERT/UPDATE/DELETE never runs automatically -- it comes
+    // back with requiresConfirmation:true and needs an admin password at
+    // /ask/confirm before it touches the database for real.
+    function renderAdminPanel(result) {
+      const div = document.createElement("div");
+      div.className = "admin-panel";
+      div.innerHTML = `
+        <div class="admin-head">${lockIcon}<h3>Admin authorization required</h3></div>
+        <p class="op-line">This is a <code>${escapeHtml(result.operation)}</code> &mdash; it will change real data once confirmed.</p>
+        <p class="explanation">${escapeHtml(result.explanation)}</p>
+        <div class="sql-block">${escapeHtml(result.sql)}</div>
+        <div class="admin-row">
+          <input type="password" placeholder="Admin password" class="confirm-password" autocomplete="current-password" />
+          <button type="button" class="danger confirm-btn">Authorize &amp; run</button>
+          <button type="button" class="ghost cancel-btn">Cancel</button>
+        </div>
+        <div class="confirm-result"></div>
+      `;
+
+      const passwordInput = div.querySelector(".confirm-password");
+      const confirmBtn = div.querySelector(".confirm-btn");
+      const cancelBtn = div.querySelector(".cancel-btn");
+      const confirmResult = div.querySelector(".confirm-result");
+
+      cancelBtn.addEventListener("click", () => div.remove());
+
+      confirmBtn.addEventListener("click", async () => {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = "Running…";
+        confirmResult.innerHTML = "";
+        try {
+          const res = await fetch("/ask/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sql: result.sql, adminPassword: passwordInput.value }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            confirmResult.appendChild(renderErrorBlock(data));
+            return;
+          }
+          confirmResult.innerHTML = `<p class="confirm-done">Authorized and executed &mdash; ${data.rowCount} row(s) affected.</p>`;
+          confirmBtn.remove();
+          cancelBtn.remove();
+          passwordInput.remove();
+        } catch (err) {
+          confirmResult.appendChild(renderErrorBlock({ error: err.message || String(err) }));
+        } finally {
+          if (confirmBtn.isConnected) {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = "Authorize & run";
+          }
+        }
+      });
+
+      return div;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const prompt = promptInput.value.trim();
+      if (!prompt) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Asking…";
+      output.innerHTML = "";
+
+      try {
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, modelId: selectedModelId || undefined }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          output.appendChild(renderErrorBlock(data));
+          return;
+        }
+
+        if (data.requiresConfirmation) {
+          output.appendChild(renderAdminPanel(data));
+          return;
+        }
+
+        output.appendChild(renderResult(data));
+      } catch (err) {
+        output.appendChild(renderErrorBlock({ error: err.message || String(err) }));
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Ask";
+      }
+    });
+  </script>
+</body>
+</html>
