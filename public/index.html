@@ -115,7 +115,9 @@
   }
   .badge.local { background: rgba(63, 110, 100, 0.25); color: #8fc9ba; }
   .badge.remote { background: rgba(184, 134, 58, 0.22); color: #e0b273; }
+  .badge.unavailable { background: rgba(156, 59, 46, 0.22); color: #e0a89f; }
   .model-desc { margin: 0.3rem 0 0; font-size: 0.78rem; color: var(--text-ink-muted); line-height: 1.45; }
+  .model-card:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 
   .source-status {
     margin-top: auto;
@@ -304,6 +306,13 @@
     </div>
 
     <div>
+      <p class="panel-label">Database</p>
+      <div class="model-list" id="database-list">
+        <p class="status-line">Loading databases&hellip;</p>
+      </div>
+    </div>
+
+    <div>
       <p class="panel-label">Select</p>
       <div class="model-list" id="model-list">
         <p class="status-line">Loading models&hellip;</p>
@@ -311,7 +320,6 @@
     </div>
 
     <div class="source-status">
-      <div class="row"><span>Database</span><strong>nextgendb (Postgres)</strong></div>
       <div class="row"><span>Access</span><strong>Read-only by default</strong></div>
       <div class="row"><span>Writes</span><strong>Require admin password</strong></div>
     </div>
@@ -348,6 +356,8 @@
     const output = document.getElementById("output");
 
     let selectedModelId = null;
+    let selectedDatabaseId = null;
+    const databaseList = document.getElementById("database-list");
     const statGrid = document.getElementById("stat-grid");
     const dbInfo = document.getElementById("db-info");
     const sampleTable = document.getElementById("sample-table");
@@ -429,6 +439,40 @@
     }
     loadModels();
 
+    function renderDatabaseList(databases) {
+      databaseList.innerHTML = databases
+        .map(
+          (d) => `
+        <button type="button" class="model-card${d.id === selectedDatabaseId ? " selected" : ""}"
+                data-database-id="${escapeHtml(d.id)}" ${d.configured ? "" : "disabled"}>
+          <div class="model-card-top">
+            <span class="model-name">${escapeHtml(d.label)}</span>
+            <span class="badge ${d.configured ? "local" : "unavailable"}">${d.configured ? "Ready" : "Not configured"}</span>
+          </div>
+        </button>`
+        )
+        .join("");
+
+      databaseList.querySelectorAll(".model-card").forEach((el) => {
+        el.addEventListener("click", () => {
+          selectedDatabaseId = el.dataset.databaseId;
+          databaseList.querySelectorAll(".model-card").forEach((c) => c.classList.toggle("selected", c === el));
+        });
+      });
+    }
+
+    async function loadDatabases() {
+      try {
+        const res = await fetch("/databases");
+        const data = await res.json();
+        selectedDatabaseId = data.defaultDatabase ?? data.databases[0]?.id ?? null;
+        renderDatabaseList(data.databases);
+      } catch (err) {
+        databaseList.innerHTML = `<p class="status-line">Databases unavailable.</p>`;
+      }
+    }
+    loadDatabases();
+
     function renderTable(columns, rows) {
       if (rows.length === 0) {
         return "<p class=\"status-line\">No rows returned.</p>";
@@ -498,7 +542,7 @@
           const res = await fetch("/ask/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sql: result.sql, adminPassword: passwordInput.value }),
+            body: JSON.stringify({ sql: result.sql, adminPassword: passwordInput.value, database: result.database }),
           });
           const data = await res.json();
           if (!res.ok) {
@@ -535,7 +579,7 @@
         const res = await fetch("/ask", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, modelId: selectedModelId || undefined }),
+          body: JSON.stringify({ prompt, modelId: selectedModelId || undefined, database: selectedDatabaseId || undefined }),
         });
         const data = await res.json();
 

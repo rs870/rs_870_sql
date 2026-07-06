@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { assertSafeSelect, assertConfirmedDml, withRowLimit } from "./sqlGuard";
+import { getDatabaseConfig } from "./databases";
 
 export interface ColumnInfo {
   name: string;
@@ -21,16 +22,30 @@ export interface QueryResult {
 
 export const dialect = "postgres";
 
-const pool = new Pool({
-  host: process.env.PG_HOST ?? "localhost",
-  port: Number(process.env.PG_PORT ?? 5432),
-  database: process.env.PG_DATABASE ?? "nextgendb",
-  user: process.env.PG_USER ?? "postgres",
-  password: process.env.PG_PASSWORD,
-  statement_timeout: 10_000,
-});
+// One pool per selected database, created lazily and reused -- the caller
+// picks a database by id (see src/databases.ts) on every request instead
+// of the server having a single fixed connection.
+const pools = new Map<string, Pool>();
 
-export async function listTables(): Promise<TableInfo[]> {
+function getPool(databaseId?: string): Pool {
+  const config = getDatabaseConfig(databaseId);
+  let pool = pools.get(config.id);
+  if (!pool) {
+    pool = new Pool({
+      host: config.host,
+      port: config.port,
+      database: config.database,
+      user: config.user,
+      password: config.password,
+      statement_timeout: 10_000,
+    });
+    pools.set(config.id, pool);
+  }
+  return pool;
+}
+
+export async function listTables(databaseId?: string): Promise<TableInfo[]> {
+  const pool = getPool(databaseId);
   const { rows } = await pool.query(
     `SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable
      FROM information_schema.columns c
@@ -65,7 +80,8 @@ export interface AnalyticsSummary {
   sample: QueryResult;
 }
 
-export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
+export async function getAnalyticsSummary(databaseId?: string): Promise<AnalyticsSummary> {
+  const pool = getPool(databaseId);
   const [summaryRes, dbRes, schemaRes, sampleRes] = await Promise.all([
     pool.query(
       `SELECT
@@ -118,11 +134,11 @@ function formatLocalDate(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
-export async function executeReadOnlyQuery(sql: string): Promise<QueryResult> {
+export async function executeReadOnlyQuery(sql: string, databaseId?: string): Promise<QueryResult> {
   assertSafeSelect(sql);
   const bounded = withRowLimit(sql);
 
-  const client = await pool.connect();
+  const client = await getPool(databaseId).connect();
   try {
     await client.query("BEGIN TRANSACTION READ ONLY");
     const result = await client.query(bounded);
@@ -146,10 +162,10 @@ export async function executeReadOnlyQuery(sql: string): Promise<QueryResult> {
  * assertConfirmedDml() has re-validated the statement server-side -- this
  * function does not trust its caller, it re-checks too.
  */
-export async function executeConfirmedWrite(sql: string): Promise<QueryResult> {
+export async function executeConfirmedWrite(sql: string, databaseId?: string): Promise<QueryResult> {
   assertConfirmedDml(sql);
 
-  const client = await pool.connect();
+  const client = await getPool(databaseId).connect();
   try {
     await client.query("BEGIN");
     const result = await client.query(sql);
@@ -168,5 +184,6 @@ export async function executeConfirmedWrite(sql: string): Promise<QueryResult> {
 }
 
 export async function close(): Promise<void> {
-  await pool.end();
+  await Promise.all([...pools.values()].map((p) => p.end()));
+  pools.clear();
 }

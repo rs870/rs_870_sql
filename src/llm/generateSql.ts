@@ -8,21 +8,29 @@ import { callOpenAiCompat } from "./providers/openAiCompatProvider";
 
 const OLLAMA_MAX_TABLES = Number(process.env.OLLAMA_MAX_TABLES ?? 20);
 
+export interface GenerateSqlResult extends GeneratedSql {
+  /** The model actually resolved and used -- echoes back which one, whether the caller picked it by id or by paramsB. */
+  modelId: string;
+}
+
 /**
  * Turns an English prompt into a single read-only SQL query grounded in the
- * real schema. Dispatches to whichever model backend the caller picked
- * (`modelId`) -- a local Ollama model or a self-hosted OpenAI-compatible
- * server -- but both go through the same schema-filtering step
- * (see llm/schemaFilter.ts) and the same JSON parsing/validation.
+ * real schema. Dispatches to whichever model backend the caller picked --
+ * by explicit `modelId`, or by `paramsB` (parameter count in billions, e.g.
+ * a caller that just wants "the 27B model") -- a local Ollama model or a
+ * self-hosted OpenAI-compatible server, but both go through the same
+ * schema-filtering step (see llm/schemaFilter.ts) and the same JSON
+ * parsing/validation.
  */
 export async function generateSql(
   prompt: string,
   dialect: string,
   tables: TableInfo[],
   previousAttempt?: PreviousAttempt,
-  modelId?: string
-): Promise<GeneratedSql> {
-  const config = getModelConfig(modelId);
+  modelId?: string,
+  paramsB?: number
+): Promise<GenerateSqlResult> {
+  const config = getModelConfig(modelId, paramsB);
   const { system, user } = await buildPrompt(prompt, dialect, tables, OLLAMA_MAX_TABLES, config, previousAttempt);
 
   const rawText =
@@ -39,5 +47,5 @@ export async function generateSql(
   if (!parsed.sql) {
     throw new Error(`Model '${config.id}' did not return SQL. Raw response: ${rawText}`);
   }
-  return parsed;
+  return { ...parsed, modelId: config.id };
 }

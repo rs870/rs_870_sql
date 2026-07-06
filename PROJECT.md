@@ -120,6 +120,50 @@ providers only differ in the HTTP call). Adding a third backend means
 adding one entry to `models.ts` and, if it doesn't speak Ollama's or
 OpenAI's chat format, one small provider file.
 
+A caller can also select by size instead of by name — `paramsB: 7` or
+`paramsB: 27` resolves to the matching entry above via `getModelConfig()`.
+This exists for machine callers (see "Database selection and the API
+contract" below) that want to say "give me the bigger model" without
+knowing its id; `modelId` wins if both are supplied.
+
+## Database selection and the API contract
+
+`/ask` was originally hardcoded to a single Postgres connection. It's now a
+selector, same shape as the model picker: `POST /ask` accepts `database`,
+resolved against a registry in `src/databases.ts` (`GET /databases` lists
+the options). Each database gets its own lazily-created, cached connection
+pool (`src/db.ts`) instead of one global pool, so adding a database is a
+config change, not a code change.
+
+Only `nextgendb` is actually wired up to real connection details today.
+`db2-placeholder` exists in the registry with empty host/database fields —
+selecting it returns a clear "not configured" error rather than a raw
+connection failure, and it becomes usable the moment its `DB2_*` env vars
+(`.env.example`) are filled in.
+
+This is what makes `/ask` usable as a plain JSON API for another
+application (not just the browser UI) to call directly:
+
+```
+POST /ask
+{ "prompt": "...", "database": "nextgendb", "modelId": "gemma-3-27b" }
+  -- or, selecting by size instead of name --
+{ "prompt": "...", "database": "nextgendb", "paramsB": 27 }
+
+-> 200 { prompt, database, modelId, sql, explanation, columns, rows, rowCount }
+-> 200 { prompt, database, modelId, sql, explanation, requiresConfirmation: true, operation }
+-> 500 { error, technicalError }
+```
+
+The response always echoes back the `database` and the *resolved*
+`modelId` (even when the caller specified `paramsB` instead), so a
+programmatic caller always knows exactly what ran. `POST /ask/confirm`
+takes the same `database` field so a confirmed write lands in the same
+database the original question was run against. There's deliberately no
+new endpoint for this — `/ask` serves both the web UI and any external
+caller with the same contract, so there's only one code path to keep
+correct.
+
 ## Confirming a destructive query
 
 The model is allowed to propose an INSERT/UPDATE/DELETE — plenty of
@@ -239,9 +283,12 @@ listing tables, running a real read-only query, and confirming a write
 attempt is rejected before touching the database. `src/llm/schemaFilter.test.ts`
 covers keyword ranking, semantic/vector ranking against a mocked
 `/v1/embeddings` response, and the fallback to keyword scoring when that
-call fails.
+call fails. `src/databases.test.ts` and `src/llm/models.test.ts` cover the
+database/model registries: resolving by id, resolving by `paramsB`,
+rejecting unknown or unconfigured selections, and never leaking connection
+credentials through the client-facing list endpoints.
 
-Run with `npm test` (30/30 passing).
+Run with `npm test` (42/42 passing).
 
 On top of that, `src/goldset.ts` is a standing 20-question regression set —
 each question paired with a hand-verified SQL query and expected result

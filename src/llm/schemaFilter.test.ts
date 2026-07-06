@@ -24,6 +24,7 @@ function ollamaConfig(): ModelConfig {
     provider: "ollama",
     baseUrl: "http://localhost:11434",
     model: "test-model",
+    paramsB: 7,
   };
 }
 
@@ -38,6 +39,7 @@ function openAiConfig(id: string): ModelConfig {
     baseUrl: "http://localhost:3001",
     model: "test-model",
     embeddingModel: "test-embed",
+    paramsB: 27,
   };
 }
 
